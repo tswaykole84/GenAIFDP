@@ -1,229 +1,104 @@
+import streamlit as st
+from nutrition_agent import nutrition_agent
+from PIL import Image
+import requests
+from io import BytesIO
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
-from phi.agent import Agent
-from phi.model.groq import Groq
-from tavily import TavilyClient
-from phi.tools.duckduckgo import DuckDuckGo
-import yfinance as yf
-import json
-import pandas as pd # Import pandas for data manipulation
 
 # Load environment variables
 load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=GOOGLE_API_KEY)
 
-# Initialize the Groq LLM and Tavily client
-model = Groq(id="llama3-70b-8192")
-tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+st.set_page_config(page_title="Smartest AI Nutrition Assistant", layout="wide")
 
-# Custom tool function to perform Tavily search
-def tavily_search(query: str, max_results: int = 5) -> str:
-    """
-    Performs a web search using Tavily and returns the search results as a JSON string.
-    Use this tool to find up-to-date information, news, or general data.
-    Args:
-        query (str): The search query.
-        max_results (int): The maximum number of search results to return (default is 5).
-    """
-    try:
-        response = tavily_client.search(query=query, search_depth="advanced", max_results=max_results)
-        return json.dumps(response, indent=2)
-    except Exception as e:
-        return f"Error performing search: {str(e)}"
+st.title("🥗 Smartest AI Nutrition Assistant")
 
-# --- New yfinance wrapper functions ---
+# Tabs
+tab1, tab2 = st.tabs(["📋 Get Personalized Diet Plan", "📷 Image-Based Nutrition Analysis"])
 
-def get_stock_info(ticker_symbol: str) -> str:
-    """
-    Retrieves general information about a stock using its ticker symbol.
-    Returns a JSON string containing key information like longName, sector, industry, marketCap, etc.
-    Args:
-        ticker_symbol (str): The stock ticker symbol (e.g., "AAPL", "MSFT").
-    """
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        info = ticker.info
-        # Filter for relevant info to avoid overwhelming the LLM
-        relevant_info = {
-            "longName": info.get("longName"),
-            "sector": info.get("sector"),
-            "industry": info.get("industry"),
-            "marketCap": info.get("marketCap"),
-            "previousClose": info.get("previousClose"),
-            "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),
-            "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
-            "beta": info.get("beta"),
-            "trailingPE": info.get("trailingPE"),
-            "forwardPE": info.get("forwardPE"),
-            "returnOnEquity": info.get("returnOnEquity"),
-            "debtToEquity": info.get("debtToEquity"),
-            "profitMargins": info.get("profitMargins"),
-            "revenueGrowth": info.get("revenueGrowth"),
-            "dividendYield": info.get("dividendYield"),
-            "recommendationKey": info.get("recommendationKey")
-        }
-        return json.dumps(relevant_info, indent=2)
-    except Exception as e:
-        return f"Error getting stock info for {ticker_symbol}: {str(e)}. Please check the ticker symbol."
+# ---------------- Tab 1: Personalized Diet Plan ----------------
+with tab1:
+    st.subheader("📋 Fill the Form to Get Your Personalized Diet Plan")
 
-def get_historical_stock_data(ticker_symbol: str, period: str = "1y") -> str:
-    """
-    Retrieves historical stock data (Open, High, Low, Close, Volume) for a given ticker symbol and period.
-    Valid periods: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max.
-    Returns a JSON string representation of the historical data (last few rows).
-    Args:
-        ticker_symbol (str): The stock ticker symbol (e.g., "AAPL", "MSFT").
-        period (str): The period for which to fetch data (e.g., "1y" for one year).
-    """
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        # Fetch up to 100 rows to keep it manageable for LLM
-        data = ticker.history(period=period)
-        if data.empty:
-            return f"No historical data found for {ticker_symbol} for the period {period}."
-        # Return only a relevant summary or head/tail to avoid large outputs
-        return data.tail().to_json(indent=2) # Return last 5 rows as JSON
-    except Exception as e:
-        return f"Error getting historical data for {ticker_symbol}: {str(e)}. Please check the ticker symbol or period."
+    with st.form("diet_form"):
+        name = st.text_input("What is your name?")
+        age = st.text_input("Age")
+        gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        diet_type = st.selectbox("Are you Vegetarian or Non-Vegetarian?", ["Vegetarian", "Non-Vegetarian"])
+        location = st.text_input("Geographical Location (e.g., India, US)")
+        health_issues = st.text_input("Any existing health complaints?")
+        health_goals = st.text_input("Your health/fitness goals?")
+        likes = st.text_input("Foods you like")
+        dislikes = st.text_input("Foods you dislike")
+        calories = st.text_input("Approximate daily calorie requirement (if known)")
 
-# -------------------------
-# AGENTS SETUP (with token limits)
-# -------------------------
+        submitted = st.form_submit_button("Generate Diet Plan")
 
-# Agent 1: Research Agent
-research_agent = Agent(
-    name="ResearchAgent",
-    model=model,
-    tools=[tavily_search, DuckDuckGo()],
-    instructions=[
-        "You are an investment research agent. Collect concise and relevant financial data using Tavily and DuckDuckGo.",
-        "Summarize findings clearly within 1000 tokens. Include only key updates on market trends, stock news, and fundamentals.",
-        "Avoid long lists or deep history. Include only top 3 relevant sources and cite them briefly."
-    ],
-    show_tool_calls=True,
-    markdown=True
-)
+    if submitted:
+        user_profile = (
+            f"My name is {name}. I am {age} years old, {gender}, {diet_type}, living in {location}. "
+            f"I have the following health issues: {health_issues}. "
+            f"My goal is to {health_goals}. I like eating {likes} but dislike {dislikes}. "
+            f"My daily calorie need is {calories}. "
+            "Please generate a personalized meal plan broken into breakfast, lunch, snacks, dinner. "
+            "Also include a clear explanation of nutritional content and a conclusion for health advice."
+        )
 
-# Agent 2: Finance Agent
-finance_agent = Agent(
-    name="FinanceAgent",
-    model=model,
-    # Pass the new yfinance wrapper functions as tools
-    tools=[get_stock_info, get_historical_stock_data],
-    instructions=[
-        "You are a financial analyst. Use the available stock tools to fetch real-time and historical financial data.",
-        "When asked for stock information, first use 'get_stock_info' with the ticker symbol.",
-        "When asked for historical prices or trends, use 'get_historical_stock_data' with the ticker and appropriate period (e.g., '1y', '3mo').",
-        "Summarize key metrics such as P/E, ROE, debt, and margins based on the data you retrieve.",
-        "Keep the output short, clear, and under 1000 tokens. Explain only the most significant 3-5 metrics in simple terms.",
-        "Avoid repetition or detailed background data unless critical."
-    ],
-    show_tool_calls=True, # Good to see tool calls for debugging
-    markdown=True
-)
+        with st.spinner("Generating your personalized meal plan..."):
+            result = nutrition_agent.run(user_profile)
 
-# Agent 3: Analysis Agent
-analysis_agent = Agent(
-    name="AnalysisAgent",
-    model=model,
-    instructions=[
-        "You are an investment analyst. Based on financial interpretation, provide a concise Buy, Hold, or Sell recommendation.",
-        "Justify your answer with 2-3 solid points. Keep the answer under 1000 tokens and avoid excessive explanation.",
-        "Summarize investment risks and opportunities briefly."
-    ],
-    markdown=True
-)
+    # Clean output
+            if result:
+                if isinstance(result, str):
+                    st.markdown(result)
+                elif hasattr(result, 'content'):
+                    st.markdown(result.content)
+                else:
+                    st.write(result)
 
-# Agent 4: Editor Agent
-editor_agent = Agent(
-    name="EditorAgent",
-    model=model,
-    instructions=[
-        "You are a financial editor. Combine all agent outputs into a single professional summary.",
-        "Ensure total report stays under 1500 tokens. Use headings, markdown formatting, and avoid repetition.",
-        "Keep the language clear, engaging, and suitable for a decision-making investor."
-    ],
-    markdown=True
-)
 
-# -------------------------
-# MULTI-STAGE FUNCTION
-# -------------------------
+# ---------------- Tab 2: Image-Based Nutrition Analysis ----------------
+with tab2:
+    st.subheader("📷 Upload or Paste a Food Image(JPG/JPEG/PNG only) URL")
 
-def investment_advisor_ai(user_prompt):
-    print("\n🔍 Step 1: Research Agent Running...")
-    # The research agent might need to identify the ticker from the prompt first
-    # For now, let's assume the user_prompt directly implies a search
-    research_output = research_agent.run(user_prompt)
-    print(f"Research Output: {research_output.content[:200]}...") # Print a snippet for debugging
+    image = None  # Initialize image variable
+    image_input_type = st.radio("Choose input method:", ["Upload Image", "Paste Image URL"])
 
-    # Extract potential ticker from the user_prompt for the FinanceAgent
-    # This is a very basic extraction; a more robust solution would be needed
-    # For a real agent, the ResearchAgent or an initial parsing step would extract this.
-    import re
-    match = re.search(r'\b[A-Z]{1,5}\b', user_prompt) # Simple regex for a possible ticker
-    ticker_for_finance = match.group(0) if match else None
-
-    if not ticker_for_finance:
-        print("Could not identify a ticker symbol from the prompt for the Finance Agent. Skipping Finance and Analysis steps.")
-        # Proceed with only research and editor if no ticker
-        finance_output_content = "No specific ticker identified for financial analysis."
-        analysis_output_content = "No financial data analyzed due to missing ticker."
+    if image_input_type == "Upload Image":
+        uploaded_file = st.file_uploader("Upload a food image", type=["png", "jpg", "jpeg"])
+        if uploaded_file:
+            try:
+                image = Image.open(uploaded_file)
+            except Exception as e:
+                st.error(f"Error opening image: {e}")
     else:
-        print(f"\n📊 Step 2: Finance Agent Running for {ticker_for_finance}...")
-        # The finance agent needs to *know* what ticker to look for.
-        # It's better if the prompt to the finance agent explicitly asks for data for a ticker.
-        # Here, we combine the research context with a direct instruction for the finance agent.
-        finance_prompt = (
-            f"Based on the following context about {ticker_for_finance}: \n"
-            f"{research_output.content}\n\n"
-            f"Now, use your tools to get key financial metrics and information for {ticker_for_finance} "
-            f"such as P/E, ROE, debt, margins, and recent stock performance. Summarize them concisely."
-        )
-        finance_output = finance_agent.run(finance_prompt)
-        finance_output_content = finance_output.content
-        print(f"Finance Output: {finance_output_content[:200]}...") # Print a snippet for debugging
+        image_url = st.text_input("Enter image URL")
+        if image_url:
+            try:
+                response = requests.get(image_url)
+                response.raise_for_status()
+                image = Image.open(BytesIO(response.content))
+            except Exception as e:
+                st.error(f"Error loading image: {e}")
 
-        print("\n📈 Step 3: Analysis Agent Running...")
-        analysis_prompt = (
-            f"Based on the financial interpretation provided:\n"
-            f"{finance_output_content}\n\n"
-            f"And the initial research:\n"
-            f"{research_output.content}\n\n"
-            f"Provide a concise Buy, Hold, or Sell recommendation for {ticker_for_finance}, "
-            f"justifying with 2-3 solid points, investment risks, and opportunities."
-        )
-        analysis_output = analysis_agent.run(analysis_prompt)
-        analysis_output_content = analysis_output.content
-        print(f"Analysis Output: {analysis_output_content[:200]}...") # Print a snippet for debugging
+    if image is not None:
+        st.image(image, caption="Selected Image", use_column_width=True)
 
-
-    print("\n📝 Step 4: Editor Agent Compiling Final Report...")
-    final_report = editor_agent.run(f"""
-    Research Summary:
-    {research_output.content}
-
-    Financial Interpretation:
-    {finance_output_content}
-
-    Investment Analysis:
-    {analysis_output_content}
-    """)
-
-    return final_report.content
-
-# -------------------------
-# CLI LOOP
-# -------------------------
-
-if __name__ == "__main__":
-    print("💼 Welcome to Investment Analyst AI (Tavily Edition)")
-    print("Ask about any company or stock to get a full analysis. Type 'exit' to quit.\n")
-
-    while True:
-        user_input = input("📈 You: ")
-        if user_input.lower() in ["exit", "quit"]:
-            print("👋 Exiting... Happy Investing!")
-            break
-        report = investment_advisor_ai(user_input)
-        print("\n📑 Final Investment Report:\n")
-        print(report)
+        if st.button("Analyze Nutrition"):
+            prompt = (
+                "Analyze the nutritional content of the food shown in this image. "
+                "Identify the type of food, estimate calories, and mention if it is healthy or not."
+            )
+            try:
+                model = genai.GenerativeModel('gemini-2.5-flash-preview-04-17')
+                with st.spinner("Analyzing image..."):
+                    result = model.generate_content([prompt, image])
+                st.markdown("### 🧠 Nutrition Analysis Result")
+                st.markdown(result.text)
+            except Exception as e:
+                st.error(f"Failed to analyze image: {e}")
+    else:
+        st.info("Please upload an image or paste a valid image URL to analyze.")
